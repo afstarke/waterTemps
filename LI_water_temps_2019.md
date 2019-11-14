@@ -6,9 +6,7 @@ November 14, 2019
 Water temperature stations
 --------------------------
 
-This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
-
-When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+Exploring temperature data in the Peconics. 2 USGS guage stations exist with continuous data collection.
 
 ``` r
 # estuarySites <- whatNWISsites(stateCd = "NY", 
@@ -42,6 +40,8 @@ dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10)
 Plots
 -----
 
+Data has been collected since 2012, with 2013 being the first 'full' year of data collection.
+
     ## Joining, by = "site_no"
 
     ## Warning in bind_rows_(x, .id): Vectorizing 'sfc_POINT' elements may not
@@ -51,6 +51,8 @@ Plots
 
 Anomolies?
 ----------
+
+How do the temps of 2019 compare with the past? Red ribbon = 2019 temperature range based on daily statistics
 
 ``` r
 daily_mean_7yr <- temps %>% 
