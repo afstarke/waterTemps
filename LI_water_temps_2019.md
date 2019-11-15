@@ -31,7 +31,7 @@ estuarySiteLocations <- readNWISsite(peconicSiteIDs) %>%
 mapview(estuarySiteLocations)
 ```
 
-![](LI_water_temps_2019_files/figure-markdown_github/cars-1.png)
+![](LI_water_temps_2019_files/figure-markdown_github/sites-1.png)
 
 ``` r
 dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10) 
@@ -42,12 +42,7 @@ Plots
 
 Data has been collected since 2012, with 2013 being the first 'full' year of data collection.
 
-    ## Joining, by = "site_no"
-
-    ## Warning in bind_rows_(x, .id): Vectorizing 'sfc_POINT' elements may not
-    ## preserve their attributes
-
-![](LI_water_temps_2019_files/figure-markdown_github/pressure-1.png)
+![](LI_water_temps_2019_files/figure-markdown_github/temps-1.png)
 
 Anomolies?
 ----------
@@ -78,9 +73,7 @@ daily_mean_7yr %>% ggplot(aes(x = day_of_year, y = temp_mean7yr)) +
   facet_grid(station_nm ~ .) 
 ```
 
-    ## Warning: Ignoring unknown aesthetics: y
-
-![](LI_water_temps_2019_files/figure-markdown_github/unnamed-chunk-1-1.png)
+![](LI_water_temps_2019_files/figure-markdown_github/anomolies-1.png)
 
 ``` r
 # ggplotly()
