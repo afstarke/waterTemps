@@ -113,6 +113,7 @@ temps  %>%
   scale_color_viridis_c(option = "inferno") +
   facet_grid(station_nm ~ year) + 
   scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  theme(panel.spacing = unit(.5, "lines")) +
   # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
   theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
   labs(y = "Temp (c)", x = NULL)
@@ -122,7 +123,7 @@ temps  %>%
 
 ## Anomolies?  
 How do the temps of 2019 compare with the past? 
-Red ribbon = 2019 temperature range based on daily statistics
+Red ribbon = 2019 temperature range based on daily max and min at each station. Grey ribbon is average max and min by day for the previous 6
  
 ```{r anomolies, message=FALSE, warning=FALSE, paged.print=FALSE}
 daily_mean_7yr <- temps %>% 
@@ -134,21 +135,22 @@ daily_mean_7yr <- temps %>%
   index_by(day_of_year = ~ yday(.)) %>% 
   summarize(temp_mean7yr = mean(Wtemp, na.rm = TRUE),
             temp_max7yr = mean(Wtemp_Max, na.rm = TRUE),
-            temp_min7yr = mean(Wtemp_Min, na.rm = TRUE))
+            temp_min7yr = mean(Wtemp_Min, na.rm = TRUE)) %>% 
+  mutate(commonDate = as.Date(day_of_year, origin = "2019-01-01"))
 
-daily_mean_7yr %>% ggplot(aes(x = day_of_year, y = temp_mean7yr)) + 
+daily_mean_7yr %>% ggplot(aes(x = commonDate, y = temp_mean7yr)) + 
   geom_ribbon(aes(ymax = temp_max7yr, ymin = temp_min7yr), alpha = 0.6) +
   # geom_line(aes(y = temp_min7yr)) +
   # geom_line(aes(y = temp_max7yr)) + 
   geom_ribbon(data = temps %>% filter(year == 2019), 
-              aes(y = Wtemp, ymin = Wtemp_Min, ymax = Wtemp_Max), fill = 'red', alpha = 0.6) + 
+              aes(y = Wtemp, ymin = Wtemp_Min, ymax = Wtemp_Max, x = Date), fill = 'red', alpha = 0.6) + 
   # theme_minimal() + 
-  scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  scale_x_date(date_labels = "%d-%b") +
   # scale_x_date(labels = function(x) format(x, "%d-%b")) +
-  facet_grid(station_nm ~ .) + 
+  facet_grid(station_nm ~ .) + theme(panel.spacing = unit(1, "lines")) +
   labs(main = "2019 Daily temperatures compared to 6 year means (2013-2018)", 
-       x = "Date")
-
+       x = NULL, y = "Degrees C")
+ggplotly()
 
 ```
 
