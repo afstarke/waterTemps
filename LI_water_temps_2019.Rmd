@@ -1,12 +1,21 @@
 ---
 title: "LI water temps 2019"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 author: "Adam Starke"
 date: "November 14, 2019"
-output: github_document
+output: html_document
 ---
 
 ```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_chunk$set(
+	echo = TRUE,
+	message = FALSE,
+	warning = FALSE
+)
 library(plotly)
 library(tidyverse)
 library(dplyr)
@@ -25,7 +34,7 @@ library(ggplot2)
 library(ggthemes)
 library(ggExtra)
 library(scales)
-
+library(hrbrthemes)
 # Spatial packages
 
 library(sf)
@@ -48,7 +57,7 @@ Exploring temperature data in the Peconics.
 2 USGS guage stations exist with continuous data collection. 
 
 
-```{r cars}
+```{r sites}
 # estuarySites <- whatNWISsites(stateCd = "NY", 
 #               # water temp C
 #               parameterCd = "00010") %>% 
@@ -58,19 +67,19 @@ Exploring temperature data in the Peconics.
 peconicSiteIDs <- c("01304200", "01304562")
 
 dailyTemps <- readNWISdv(siteNumbers = peconicSiteIDs, 
-                         startDate = "2013-01-01",
+                         startDate = "2013-01-01", #first full year of data collection 2013.
                          endDate = "2019-11-01",
                          statCd = c("00001", "00002", "00003"),
                          parameterCd = "00010") %>% 
   dataRetrieval::renameNWISColumns() 
+
+dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10) # filter out coded -9999s and 9999s
 
 
 estuarySiteLocations <- readNWISsite(peconicSiteIDs) %>% 
   st_as_sf(coords = c("dec_long_va", "dec_lat_va"), crs = 4269)
 
 mapview(estuarySiteLocations)
-
-dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10) 
 
 
 ```
@@ -80,22 +89,31 @@ dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10)
 Data has been collected since 2012, with 2013 being the first 'full' year of data collection.
 
 
-```{r pressure, echo=FALSE}
+```{r temps, echo=FALSE}
 # go tsibble.
+theme_set(theme_ipsum())
 
 temps <- dailyTemps %>% 
   # join to get station names
-  left_join(estuarySiteLocations %>% select(site_no, station_nm)) %>% 
+  left_join(estuarySiteLocations %>% 
+              select(site_no, station_nm)) %>%
+   as_tsibble(key = station_nm, index = Date) %>% 
+  fill_gaps() %>% 
   mutate(month = month(Date),
          year = year(Date),
-         day_of_year = yday(Date)) %>% 
-  as_tsibble(key = station_nm, index = Date) %>% fill_gaps()
+         day_of_year = yday(Date))
+ 
+
 
 temps  %>% 
-  ggplot(aes(x = day_of_year, y = Wtemp, color = year)) +
-  geom_path() + 
-  theme_minimal() + 
-  facet_grid(year ~ station_nm)
+  ggplot(aes(x = day_of_year, y = Wtemp, color = Wtemp, group = year)) +
+  geom_line() + 
+  # scale_color_gradient(low = "blue", high = "red", aesthetics = "color") + 
+  scale_color_viridis_c(option = "inferno") +
+  facet_grid(. ~ station_nm) + 
+  scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(legend.position = "none") + 
+  labs(y = "Temp (c)", "")
 
 
 ```
@@ -103,8 +121,8 @@ temps  %>%
 ## Anomolies?  
 How do the temps of 2019 compare with the past? 
 Red ribbon = 2019 temperature range based on daily statistics
-
-```{r}
+ 
+```{r anomolies, message=FALSE, warning=FALSE, paged.print=FALSE}
 daily_mean_7yr <- temps %>% 
   # filter to get 2012-2018
   filter(year != 2019) %>% 
@@ -122,12 +140,13 @@ daily_mean_7yr %>% ggplot(aes(x = day_of_year, y = temp_mean7yr)) +
   # geom_line(aes(y = temp_max7yr)) + 
   geom_ribbon(data = temps %>% filter(year == 2019), 
               aes(y = Wtemp, ymin = Wtemp_Min, ymax = Wtemp_Max), fill = 'red', alpha = 0.6) + 
-  theme_minimal() + 
+  # theme_minimal() + 
   scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
   # scale_x_date(labels = function(x) format(x, "%d-%b")) +
-  facet_grid(station_nm ~ .) 
+  facet_grid(station_nm ~ .) + 
+  labs(main = "2019 Daily temperatures compared to 6 year means (2013-2018)", 
+       x = "Date")
 
-# ggplotly()
 
 ```
 
