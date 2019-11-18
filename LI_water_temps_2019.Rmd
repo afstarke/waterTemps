@@ -11,9 +11,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
+	echo = FALSE,
 	message = FALSE,
-	warning = FALSE,
-	include = FALSE
+	warning = FALSE
 )
 library(plotly)
 library(tidyverse)
@@ -109,7 +109,7 @@ temps  %>%
   geom_line() + 
   # scale_color_gradient(low = "blue", high = "red", aesthetics = "color") + 
   scale_color_viridis_c(option = "inferno") +
-  facet_grid(. ~ station_nm) + 
+  facet_grid(year ~ station_nm) + 
   scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
   theme(legend.position = "none") + 
   labs(y = "Temp (c)", "")
