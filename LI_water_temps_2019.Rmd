@@ -100,19 +100,22 @@ temps <- dailyTemps %>%
   fill_gaps() %>% 
   mutate(month = month(Date),
          year = year(Date),
-         day_of_year = yday(Date))
+         day_of_year = yday(Date),
+         commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j"))
+
  
 
 
 temps  %>% 
-  ggplot(aes(x = day_of_year, y = Wtemp, color = Wtemp, group = year)) +
+  ggplot(aes(x = commonDate, y = Wtemp, color = Wtemp, group = year)) +
   geom_line() + 
   # scale_color_gradient(low = "blue", high = "red", aesthetics = "color") + 
   scale_color_viridis_c(option = "inferno") +
-  facet_grid(year ~ station_nm) + 
-  scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
-  theme(legend.position = "none") + 
-  labs(y = "Temp (c)", "")
+  facet_grid(station_nm ~ year) + 
+  scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  labs(y = "Temp (c)", x = NULL)
 
 
 ```
