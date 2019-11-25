@@ -5,7 +5,7 @@ knit: (function(input_file, encoding) {
   rmarkdown::render(input_file,
  encoding=encoding,
  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
-author: "A. Starke"
+
 output: html_document
 ---
 
@@ -21,10 +21,9 @@ library(dplyr)
 library(magrittr)
 
 library(chron)
-library(lubridate)
 library(stringr)
-library(tsibble)
-library(xts)
+library(htmltools)
+
 library(lubridate)
 library(dataRetrieval)
 
@@ -46,17 +45,24 @@ library(rmarkdown)
 library(weatherData)
 library(lunar)
 
-
+# timeseries 
+library(tsibble)
+library(fable)
+library(feasts)
+library(xts)
 
 ```
 
-## Water temperature stations
+### Water temperature stations
 
 Exploring temperature data in the Peconics.
 2 USGS guage stations exist with continuous data collection. 
 
 
 ```{r sites}
+h5("Data presented within this document have been made available through the",
+      a(href = 'http://waterdata.usgs.gov/nwis', "USGS NWIS Web Interface:")
+    )
 # estuarySites <- whatNWISsites(stateCd = "NY", 
 #               # water temp C
 #               parameterCd = "00010") %>% 
@@ -65,11 +71,18 @@ Exploring temperature data in the Peconics.
 
 peconicSiteIDs <- c("01304200", "01304562")
 
+
 dailyTemps <- readNWISdv(siteNumbers = peconicSiteIDs, 
                          startDate = "2013-01-01", #first full year of data collection 2013.
                          endDate = "2019-11-01",
                          statCd = c("00001", "00002", "00003"),
                          parameterCd = "00010") %>% 
+  dataRetrieval::renameNWISColumns() 
+dailyDOs <- readNWISdv(siteNumbers = peconicSiteIDs, 
+                         startDate = "2013-01-01", #first full year of data collection 2013.
+                         endDate = "2019-11-01",
+                         statCd = c("00001", "00002", "00003"),
+                         parameterCd = c("00300", "00301")) %>% 
   dataRetrieval::renameNWISColumns() 
 
 dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10) # filter out coded -9999s and 9999s
@@ -78,8 +91,22 @@ dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10) # filter out code
 estuarySiteLocations <- readNWISsite(peconicSiteIDs) %>% 
   st_as_sf(coords = c("dec_long_va", "dec_lat_va"), crs = 4269)
 
-mapview(estuarySiteLocations)
+# popup 
 
+	popupLink <- function(siteName, siteNo){
+		url <- paste('<a href="https://waterdata.usgs.gov/nwis/inventory?agency_code=USGS&site_no=', 
+			     siteNo,'"','> Access data and site information from NWIS </a>', sep = "")
+		
+		popupFinal <- paste(sep = "<br/>", 
+				    siteName, 
+				    url)
+		popupFinal
+	}
+
+stationMap <- mapview(estuarySiteLocations, popup = popupLink(siteName = estuarySiteLocations$station_nm, siteNo = estuarySiteLocations$site_no))
+cntrcords <- c(mean(st_coordinates(estuarySiteLocations)[,1]),
+               mean(st_coordinates(estuarySiteLocations)[,2]))
+stationMap@map %>% leaflet::setView(cntrcords[1], cntrcords[2], zoom = 10)
 
 ```
 
@@ -103,8 +130,6 @@ temps <- dailyTemps %>%
          day_of_year = yday(Date),
          commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j"))
 
- 
-
 
 temps  %>% 
   ggplot(aes(x = commonDate, y = Wtemp, color = Wtemp, group = year)) +
@@ -122,11 +147,11 @@ temps  %>%
 ```
 
 ## Anomolies?  
-How do the temps of 2019 compare with the past? 
-Red ribbon = 2019 temperature range based on daily max and min at each station. Grey ribbon is average max and min by day for the previous 6
+How do the temps of 2019 compare with the past? Any 
+Red ribbon = 2019 temperature range based on daily max and min at each station. Grey ribbon is daily average max and min by day for the previous 6 years. 
  
 ```{r anomolies, message=FALSE, warning=FALSE, paged.print=FALSE}
-daily_mean_7yr <- temps %>% 
+daily_mean_6yr <- temps %>% 
   # filter to get 2012-2018
   filter(year != 2019) %>% 
   # group by site (site is key)
@@ -138,19 +163,95 @@ daily_mean_7yr <- temps %>%
             temp_min7yr = mean(Wtemp_Min, na.rm = TRUE)) %>% 
   mutate(commonDate = as.Date(day_of_year, origin = "2019-01-01"))
 
-daily_mean_7yr %>% ggplot(aes(x = commonDate, y = temp_mean7yr)) + 
+anomPlot <- daily_mean_6yr %>% ggplot(aes(x = commonDate, y = temp_mean7yr)) + 
   geom_ribbon(aes(ymax = temp_max7yr, ymin = temp_min7yr), alpha = 0.6) +
   # geom_line(aes(y = temp_min7yr)) +
   # geom_line(aes(y = temp_max7yr)) + 
   geom_ribbon(data = temps %>% filter(year == 2019), 
               aes(y = Wtemp, ymin = Wtemp_Min, ymax = Wtemp_Max, x = Date), fill = 'red', alpha = 0.6) + 
   # theme_minimal() + 
-  scale_x_date(date_labels = "%d-%b") +
+  scale_x_date(date_labels = "%d-%b", date_breaks = "1 month", limits = c(ymd("2019-01-01"), Sys.Date())) +
   # scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
   facet_grid(station_nm ~ .) + theme(panel.spacing = unit(1, "lines")) +
   labs(main = "2019 Daily temperatures compared to 6 year means (2013-2018)", 
        x = NULL, y = "Degrees C")
-ggplotly()
+
+anomPlot
 
 ```
+
+### Summer temps
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+anomPlot + 
+  scale_x_date(date_labels = "%d-%b", date_breaks = "2 week", limits = c(ymd("2019-06-01"), ymd("2019-09-01")))
+```
+
+
+
+```{r}
+
+oxygen <- dailyDOs %>% 
+  # join to get station names
+  left_join(estuarySiteLocations %>% 
+              select(site_no, station_nm))  %>%  
+  select(-geometry) %>% 
+   as_tsibble(key = station_nm, index = Date) %>% 
+  fill_gaps() %>% 
+  mutate(month = month(Date),
+         year = year(Date),
+         day_of_year = yday(Date),
+         commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j"))
+
+ 
+
+
+oxygen  %>% 
+  ggplot(aes(x = commonDate, y = DO, color = DO, group = year)) +
+  geom_line() + 
+  # scale_color_gradient(low = "blue", high = "red", aesthetics = "color") + 
+  scale_color_viridis_c(option = "inferno") +
+  facet_grid(station_nm ~ year) + 
+  scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  theme(panel.spacing = unit(.5, "lines")) +
+  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  labs(y = "DO (mg/L)", x = NULL)
+
+
+
+```
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+daily_mean_oxygen_6yr <- oxygen %>% 
+  # filter to get 2012-2018
+  filter(year != 2019) %>% 
+  # group by site (site is key)
+  group_by_key() %>%
+  # index by the day of year
+  index_by(day_of_year = ~ yday(.)) %>% 
+  summarize(oxygen_mean6yr = mean(DO, na.rm = TRUE),
+            oxygen_max6yr = mean(DO_Max, na.rm = TRUE),
+            oxygen_min6yr = mean(DO_Min, na.rm = TRUE)) %>% 
+  mutate(commonDate = as.Date(day_of_year, origin = "2019-01-01"))
+
+daily_mean_oxygen_6yr %>% ggplot(aes(x = commonDate, y = oxygen_mean6yr)) + 
+  geom_ribbon(aes(ymax = oxygen_max6yr, ymin = oxygen_min6yr), alpha = 0.6) +
+  geom_ribbon(data = oxygen %>% filter(year == 2019), 
+              aes(y = DO, ymin = DO_Min, ymax = DO_Max, x = Date), fill = 'red', alpha = 0.6) + 
+  # theme_minimal() + 
+  scale_x_date(date_labels = "%d-%b") +
+  # scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  facet_grid(station_nm ~ .) + theme(panel.spacing = unit(1, "lines")) +
+  labs(main = "2019 Daily Mean Dissolved Oxygen measures compared to 6 year means (2013-2018)", 
+       x = NULL, y = "Degrees C")
+
+
+```
+
+
+
+
+
 
