@@ -89,7 +89,11 @@ dailyTemps <- dailyTemps %>% filter(Wtemp < 100 & Wtemp > -10) # filter out code
 
 
 estuarySiteLocations <- readNWISsite(peconicSiteIDs) %>% 
-  st_as_sf(coords = c("dec_long_va", "dec_lat_va"), crs = 4269)
+  st_as_sf(coords = c("dec_long_va", "dec_lat_va"), crs = 4269) %>% 
+  mutate(stationName = case_when(
+    station_nm == "ORIENT HARBOR AT ORIENT NY" ~ "Orient Harbor",
+    station_nm == "PECONIC RIVER AT COUNTY HWY 105 AT RIVERHEAD NY" ~ "Peconic River Rte 105"
+  ))
 
 # popup 
 
@@ -103,7 +107,7 @@ estuarySiteLocations <- readNWISsite(peconicSiteIDs) %>%
 		popupFinal
 	}
 
-stationMap <- mapview(estuarySiteLocations, popup = popupLink(siteName = estuarySiteLocations$station_nm, siteNo = estuarySiteLocations$site_no))
+stationMap <- mapview(estuarySiteLocations, popup = popupLink(siteName = estuarySiteLocations$stationName, siteNo = estuarySiteLocations$site_no))
 cntrcords <- c(mean(st_coordinates(estuarySiteLocations)[,1]),
                mean(st_coordinates(estuarySiteLocations)[,2]))
 stationMap@map %>% leaflet::setView(cntrcords[1], cntrcords[2], zoom = 10)
@@ -122,33 +126,35 @@ theme_set(theme_ipsum())
 temps <- dailyTemps %>% 
   # join to get station names
   left_join(estuarySiteLocations %>% 
-              select(site_no, station_nm)) %>%
-   as_tsibble(key = station_nm, index = Date) %>% 
+              select(site_no, stationName)) %>%
+   as_tsibble(key = stationName, index = Date) %>% 
   fill_gaps() %>% 
   mutate(month = month(Date),
          year = year(Date),
          day_of_year = yday(Date),
-         commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j"))
+         commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j"),
+         year2019 = ifelse(year == 2019, 1, 0))
 
 
 temps  %>% 
-  ggplot(aes(x = commonDate, y = Wtemp, color = Wtemp, group = year)) +
+  ggplot(aes(x = commonDate, y = Wtemp, color = year2019, group = year)) +
   geom_line() + 
-  # scale_color_gradient(low = "blue", high = "red", aesthetics = "color") + 
-  scale_color_viridis_c(option = "inferno") +
-  facet_grid(station_nm ~ year) + 
+  scale_color_gradient(low = "grey", high = "blue", aesthetics = "color") +
+  # scale_color_viridis_c(option = "inferno") +
+  # facet_grid(stationName ~ year) +
+  facet_grid(stationName ~ .) +
   scale_x_date(labels = function(x) format(x, "%d-%b")) +
   theme(panel.spacing = unit(.5, "lines")) +
   # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
   theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
-  labs(y = "Temp (c)", x = NULL)
+  labs(y = "Temp (c)", x = NULL, title = "Water temperature through the year", subtitle = "2019 shown in blue")
 
 
 ```
 
 ## Anomolies?  
-How do the temps of 2019 compare with the past? Any 
-Red ribbon = 2019 temperature range based on daily max and min at each station. Grey ribbon is daily average max and min by day for the previous 6 years. 
+How do the temps of 2019 compare with the past? 
+Red ribbon = 2019 temperature range based on daily max and min. Grey ribbon is *daily average* max and min by day for the previous 6 years. 
  
 ```{r anomolies, message=FALSE, warning=FALSE, paged.print=FALSE}
 daily_mean_6yr <- temps %>% 
@@ -173,7 +179,7 @@ anomPlot <- daily_mean_6yr %>% ggplot(aes(x = commonDate, y = temp_mean7yr)) +
   scale_x_date(date_labels = "%d-%b", date_breaks = "1 month", limits = c(ymd("2019-01-01"), Sys.Date())) +
   # scale_x_date(labels = function(x) format(x, "%d-%b")) +
   theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
-  facet_grid(station_nm ~ .) + theme(panel.spacing = unit(1, "lines")) +
+  facet_grid(stationName ~ .) + theme(panel.spacing = unit(1, "lines")) +
   labs(main = "2019 Daily temperatures compared to 6 year means (2013-2018)", 
        x = NULL, y = "Degrees C")
 
@@ -182,36 +188,40 @@ anomPlot
 ```
 
 ### Summer temps
+Same data as above, with a focus on the summer season.
 ```{r message=FALSE, warning=FALSE, paged.print=FALSE}
 anomPlot + 
   scale_x_date(date_labels = "%d-%b", date_breaks = "2 week", limits = c(ymd("2019-06-01"), ymd("2019-09-01")))
 ```
 
-
+### Dissolved Oxygen 
+Similar assessment as above, focus on dissolved oxygen
 
 ```{r}
 
 oxygen <- dailyDOs %>% 
   # join to get station names
   left_join(estuarySiteLocations %>% 
-              select(site_no, station_nm))  %>%  
+              select(site_no, stationName))  %>%  
   select(-geometry) %>% 
-   as_tsibble(key = station_nm, index = Date) %>% 
+   as_tsibble(key = stationName, index = Date) %>% 
   fill_gaps() %>% 
   mutate(month = month(Date),
          year = year(Date),
          day_of_year = yday(Date),
-         commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j"))
+         commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j"),
+         year2019 = ifelse(year == 2019, 1, 0))
 
  
 
 
 oxygen  %>% 
-  ggplot(aes(x = commonDate, y = DO, color = DO, group = year)) +
+  ggplot(aes(x = commonDate, y = DO, color = year2019, group = year)) +
   geom_line() + 
-  # scale_color_gradient(low = "blue", high = "red", aesthetics = "color") + 
-  scale_color_viridis_c(option = "inferno") +
-  facet_grid(station_nm ~ year) + 
+  scale_color_gradient(low = "grey", high = "red", aesthetics = "color") +
+  # scale_color_viridis_c(option = "inferno") +
+  # facet_grid(stationName ~ year) + 
+  facet_grid(stationName ~ .) + 
   scale_x_date(labels = function(x) format(x, "%d-%b")) +
   theme(panel.spacing = unit(.5, "lines")) +
   # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
@@ -243,9 +253,9 @@ daily_mean_oxygen_6yr %>% ggplot(aes(x = commonDate, y = oxygen_mean6yr)) +
   # theme_minimal() + 
   scale_x_date(date_labels = "%d-%b") +
   # scale_x_date(labels = function(x) format(x, "%d-%b")) +
-  facet_grid(station_nm ~ .) + theme(panel.spacing = unit(1, "lines")) +
+  facet_grid(stationName ~ .) + theme(panel.spacing = unit(1, "lines")) +
   labs(main = "2019 Daily Mean Dissolved Oxygen measures compared to 6 year means (2013-2018)", 
-       x = NULL, y = "Degrees C")
+       x = NULL, y = "DO (mg/L)")
 
 
 ```
