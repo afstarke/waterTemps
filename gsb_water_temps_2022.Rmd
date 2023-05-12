@@ -1,0 +1,359 @@
+---
+title: "Great South Bay 2022"
+subtitle: "Eelgrass test plot water temps"
+output: html_document
+date: "2022-10-24"
+---
+
+---
+title: "Great South Bay Water Temperatures - 2022"
+subtitle: "Eelgrass test plot water temps"
+fomat: html
+editor: visual
+date: "2022-10-24"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+library(plotly)
+library(tidyverse)
+library(scales)
+library(mapview)
+library(leaflet)
+library(sf)
+
+library(mapedit)
+library(magrittr)
+library(tsibble)
+library(gganimate)
+library(stringr)
+library(lubridate)
+library(hrbrthemes)
+library(tncThemes)
+library(feasts)
+library(fable)
+library(plotly)
+library(ggspatial)
+library(rnoaa)
+library(gghighlight)
+library(units)
+library(glue)
+library(paletteer)
+library(crosstalk)
+library(chillR)
+
+## Directory setup.
+# For outputs and storage of addditional data
+boxfolder <- "../../../Box/water_temperatures_LI"
+# temp datasets
+csvs <- "../../../Box/water_temperatures_LI/data/"
+
+```
+
+```{r dataMunge, message=FALSE, warning=FALSE, include=FALSE, paged.print=FALSE}
+
+
+# Temp data:
+#
+# ' hoboUtility
+# '
+# ' @param fileList from mapped from list.files
+# '
+# ' @return
+# ' @export
+# '
+# ' @examples
+hoboUtility <- function(fileList){
+  df <- read_csv(fileList, skip = 1)
+  sn <- names(df)[3] %>% str_extract('[:digit:]{7}') # pull the sn out of the Temp column
+  df <-  df %>%  
+    mutate(SN = sn) %>%
+    mutate(DateTime = mdy_hms(`Date Time`, tz = "UCT")) %>%
+    rename_at(vars(starts_with("Temp")), .funs = funs(paste0("Temp_C"))) %>%
+    select(SN, DateTime, Temp_C)
+
+  return(df)
+}
+
+# stationLookup <- stations %>% st_drop_geometry() %>% select(station_no, SN = tmpLgID, riverFt)
+
+temperatures <- list.files(csvs, pattern = "*.csv", full.names = T) %>% map_df(.f = ~hoboUtility(.x))
+# Trim dates where data loggers weren't in place
+  
+# temperatures %>% write_excel_csv(path = paste0(boxfolder, "gsb_watertemps_eelgrass_test.csv"))
+
+# temperatures <- read_csv("../../../Box Sync/WaterTemps_WestBrook/Tempdata_timeseries_compiled.csv")
+
+ts_temperature <- temperatures %>%  #establish the interval of the recordings made (tsibble defaults to thinking the data are at 1s period.)
+  mutate(DateTime_local = with_tz(DateTime, tzone = "EST5EDT"),
+         date = as_date(DateTime_local)) %>%
+  # filter out the dates when the logger wasn't in the water.
+  filter(DateTime_local > "2022-05-10" & DateTime_local < "2022-10-21") %>% 
+  # join to the station numbers for spatial component.
+  as_tsibble(key = SN, index = DateTime_local) %>% 
+  ## Set the units appropriately.
+  mutate(Temp_c = set_units(x = Temp_C, value = "C"),
+         Temp_f = set_units(measurements::conv_unit(x = Temp_C, from = "C", "F"), "F"),
+         date = as.Date(DateTime),
+         # some plotting tools fuss over there being unit types.
+         Funitless = as.numeric(Temp_f),
+         Cunitless = as.numeric(Temp_C))
+
+
+```
+
+### Water Temperature Monitoring
+Two Onset HOBO UA-002 Temperature and light data loggers were each attached to a 4"x8"x16" concrete block that were tethered together with a length (~50 ft) of line so that no surface floats were needed. The depth at the site was shallow enough (3') to see blocks on a calm day.
+
+```{r map, message=FALSE, warning=FALSE, include=TRUE, paged.print=FALSE}
+
+## Station locations
+# 73.0565928°W 40.6712132°N   
+# 73.0568032°W 40.6708765°N   <- copied from ArcPro roughly where the loggers were deployed.
+
+# id, SN, lon, lat
+# 1, 2235011, 73.0565639, 40.6710663
+# 2, 2240618, 73.0564245, 40.6717533
+
+stations_gsb_2023 <- tibble::tribble(
+  ~id,      ~SN,       ~lon,       ~lat,
+   1L, 2235011L, -73.0565928, 40.6712132,
+   2L, 2240618L, -73.0568032, 40.6708765
+  ) %>% 
+  sf::st_as_sf(coords = c('lon', 'lat'), 
+               crs = 4326) 
+
+
+
+station_map <- mapview(stations_gsb_2023, layer.name = "HOBO locations - 2023", 
+        map.types = "Esri.WorldImagery"
+        ) 
+
+station_map@map %>% setView(zoom = 14, lng = -73.0565928, lat = 40.6708765) 
+# 
+#
+
+
+``` 
+
+
+Both temperature loggers successfully collected data from the time they were deployed, May 10, 2022 through October 21, 2022. 
+
+
+```{r message=FALSE, warning=FALSE}
+
+# temp_line_plot <- ts_temperature %>% 
+#   mutate(Funitless = as.numeric(Temp_f),
+#          Cunitless = as.numeric(Temp_C)) %>% 
+#   ggplot(aes(x = DateTime, y= Funitless, color = SN)) +
+#   geom_line() + 
+#   scale_y_continuous("Degree F", sec.axis = sec_axis(trans = ~ (. - 32)/1.8)) +
+#   # facet_wrap(~SN, nrow = 2)
+#   theme_tnc_base() +
+#   scale_color_tnc(tncpalette = 'oceanhighlight')
+#   
+# ggplotly(temp_line_plot)
+
+## Native plotly approach. As a refresh.
+ cy <- list(
+  side = "right",
+  title = "\u00B0C")
+
+ts_temperature_highlight <- ts_temperature %>% 
+  mutate(
+    numeric_date = as.numeric(date), 
+    commTime = format(as.POSIXct(DateTime, tz = "EST5EDT"), "%H:%M"),
+    commDateTime = ymd_hm(paste(min(date), commTime, sep = " "), tz = "EST5EDT")
+  ) %>%
+  filter(SN == 2235011) %>% highlight_key(~date)
+
+
+line_plotly <- plot_ly(data = ts_temperature_highlight ) %>% 
+  # highlight_key(~date) %>% 
+  add_lines(y = ~Funitless, 
+            x = ~DateTime,
+            color = ~SN) %>% 
+  # add_lines(y = ~Cunitless, 
+  #           x = ~DateTime, 
+  #           color = ~SN,
+  #           side = 'right',
+  #           yaxis = "y2", name = "\u00B0C") %>% 
+  layout(
+         xaxis = list(title = NULL),
+         yaxis = list(title = '\u00B0F'),
+         yaxis2 = cy, showlegend = FALSE) 
+
+
+```
+
+
+```{r fig.height=10, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+# raster plot
+rp <-  ts_temperature_highlight %>% 
+  
+  ggplot(aes(y = numeric_date, 
+             x = commDateTime, 
+             fill = Funitless,
+             group = date)) +
+  geom_raster(hjust = 0, vjust = 0) +
+  
+  scale_fill_tnc(discrete = F) +
+  
+  # scale_fill_paletteer_c() %>%
+  scale_x_datetime(
+    breaks = date_breaks('2 hour'),
+    labels = date_format("%H", tz = "EST5EDT"),
+    expand = c(0, 0)
+  ) +
+  # scale_y_date(breaks = date_breaks('1 week'), date_labels = "%b %d") +
+  labs(x = 'Hour of day:', y = NULL)  +
+  scale_y_reverse(labels = ~format(as.Date(.x, origin = "1970-01-01"), "%b %d"),
+                  breaks = as.numeric(seq(from = as.Date("2022-05-10"), 
+                                          by = "week", length = 20)))
+# rp
+
+rp_plotly <- ggplotly(rp)
+	  	
+scatter_try <- ts_temperature_highlight %>% 
+  ggplot(aes(date, Temp_C)) + 
+  geom_point()
+
+scatter_try_plotly <- ggplotly(scatter_try)
+
+
+subplot(line_plotly, rp_plotly, widths = c(0.7, 0.3), heights = c(0.5), margin = 0.08) %>%  
+  highlight(on = "plotly_click", persistent = T)
+
+
+```
+
+```{r echo=FALSE, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+
+
+plot_time_adjustedcdf <- temp_stats %>%
+  group_by(SN, year) %>% 
+  arrange(hours_num) %>%
+  
+  filter(SN == "2235011") %>%
+  # mutate(Temp_C = drop_units(Temp_C)) %>%
+  ggplot(aes(x = Temp_C, y = days_num, group = as.character(year))) +
+  geom_line() +
+  geom_ribbon(data = {
+    . %>% filter(Temp_C > 25)
+  },
+  aes(ymin = 0, ymax = days_num),
+  fill = 'red') +
+  # ylim(c(0, 100)) +
+  # geom_hline(aes(yintercept = 50)) +
+  facet_grid(SN ~ year) +
+  labs(color = NULL, fill = NULL) +
+  scale_x_continuous(breaks = c(10, 20, 22, 24, 26, 28),
+                     limits = c(10, 31)) +
+  theme(legend.position = "none") +
+  labs(y = "Number of days at or ABOVE temperature X",
+       x = "Temperature")
+
+plot_time_adjustedcdf + coord_flip()
+
+ggplotly(plot_time_adjustedcdf + coord_flip())
+
+
+
+```
+
+```{r}
+
+temp_threshold <-  25
+
+# temp_stats %>% mutate(hot = Temp_C > temp_threshold)
+
+temp_stats  %>% mutate(hot = Temp_C > temp_threshold,
+                       hot_temp = ifelse(test = Temp_C > temp_threshold, yes = Temp_C,  no = NA)
+                       ) %>%
+  filter(SN == "2235011") %>% 
+  # arrange(DateTime) %>% 
+  ggplot(aes(x = DateTime, y = Temp_C)) +
+  geom_line() +
+  geom_line(aes(y = hot_temp), color = "darkred", size = 1.2) +
+
+  geom_ribbon(
+    aes(ymax = hot_temp, ymin = 25),
+    fill = "red",
+    # color = "red",
+    alpha = 0.3
+  ) +
+  # geom_ribbon(
+  #   aes(ymax = hot_temp, ymin = 20),
+  #   fill = "red",
+  #   # color = "red",
+  #   alpha = 0.3
+  # ) +
+  # gghighlight(year) +
+  scale_color_paletteer_d(`"pals::stepped"`) +
+  # scale_color_viridis_d(option = "inferno") +
+  # facet_grid(stationName ~ year) +
+  facet_grid(SN ~ .) +
+  scale_x_datetime(labels = function(x) format(x, "%d-%b")) +
+  scale_y_continuous(limits = c(10, 33)) + 
+  theme(panel.spacing = unit(.5, "lines")) +
+  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  labs(y = "Temp (c)", x = NULL, title = "Water temperature through the year", subtitle = glue("Temperatures above {temp_threshold}°C"))
+
+
+ggplotly()
+```
+
+<!-- ## ChillR - Degree Days and other explorations -->
+
+```{r}
+# 
+# temps_hourly_mean <- temp_stats %>% 
+#   index_by(dayhour = lubridate::floor_date(DateTime, "1 hour")) %>% 
+#   summarise(mean_hr_tmp = mean(Temp_C))
+# 
+# temps_hourly_mean %>% ggplot(aes(x = dayhour, y = mean_hr_tmp, color = SN)) +
+#   geom_line()
+# 
+# # the function wants a vector - more to explore here. See notion for chillR notes.
+# temps_hourly_mean$gdh <- GDH(temps_hourly_mean$mean_hr_tmp, summ = T)
+# 
+# temps_hourly_mean %>% ggplot(aes(x = dayhour, y = gdh, color = SN)) +
+#   geom_line()
+# 
+
+```
+
+## Weather Patterns
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+# get a nearby weather 
+islipTerrace_weather <- ghcnd_search(stationid = "US1NYSF0074", 
+                                     date_min = min(temperatures$DateTime), 
+                                     date_max = max(temperatures$DateTime), 
+                                     var =  c("PRCP","TAVG"))
+# Convert to tibble
+ # PRCP = precipitation in tenths of millimeters.
+islipTerrace_rain <- islipTerrace_weather[[1]] %>% mutate(precip_in = (prcp /10)/25.4 )
+
+islipTerrace_rain %>% ggplot(aes(x = date, y = precip_in)) + 
+  geom_col(color = "blue") + geom_point() + theme_ipsum() + 
+  labs(y = "inches", x = NULL, subtitle = "Islip Terrace, NY", title = "Local rain fall")
+
+
+
+```
+
+#### Data
+
+Data linked here: [Temperature Data]()
+
+#### Weather reference site:
+
+Menne, M.J., I. Durre, B. Korzeniewski, S. McNeal, K. Thomas, X. Yin, S. Anthony, R. Ray, R.S. Vose, B.E.Gleason, and T.G. Houston, 2012: Global Historical Climatology Network - Daily (GHCN-Daily), Version 3. \[indicate subset used following decimal, e.g. Version 3.12\]. NOAA National Climatic Data Center. http://doi.org/10.7289/V5D21VHZ `r Sys.Date()`

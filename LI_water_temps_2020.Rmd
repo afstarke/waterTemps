@@ -1,0 +1,203 @@
+---
+title: "LI water temps 2020"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+
+library(chron)
+library(stringr)
+library(htmltools)
+
+library(lubridate)
+library(dataRetrieval)
+
+# plotting tools
+library(ggplot2)
+library(ggthemes)
+library(ggExtra)
+library(gghighlight)
+library(scales)
+library(hrbrthemes)
+library(tncThemes)
+# Spatial packages
+
+library(sf)
+library(maptools)
+library(RColorBrewer)
+library(mapview)
+library(tmap)
+library(tmaptools)
+# library(mapdeck)
+library(knitr)
+library(rmarkdown)
+
+# library(weatherData) broke with Wunderground sale.
+library(lunar)
+
+# timeseries 
+library(tsibble)
+library(fable)
+library(feasts)
+library(xts)
+
+```
+
+### Water temperature stations
+
+Search out continuous temperature stations around *NY*. 
+
+
+```{r sites}
+h5("Data presented within this document have been made available through the",
+      a(href = 'http://waterdata.usgs.gov/nwis', "USGS NWIS Web Interface:")
+    )
+
+tempsSites <- whatNWISsites(stateCd = "NY",
+              # water temp C
+              parameterCd = "00010", 
+              hasDataTypeCd = "dv", 
+              siteStatus = "active") %>%
+  filter(site_tp_cd == "ES") %>%
+  pull(site_no)
+
+
+
+dailyTemps <- readNWISuv(siteNumbers = tempsSites, 
+                         startDate = "2013-01-01", #first full year of data collection 2013.
+                         endDate = Sys.Date(),
+                         # statCd = c("00001", "00002", "00003", "00009"), # 
+                         parameterCd = "00010") %>% 
+  dataRetrieval::renameNWISColumns() 
+
+
+dailyTemps <- dailyTemps %>% filter(Wtemp_Inst < 100 & Wtemp_Inst > -10) # filter out coded -9999s and 9999s
+
+
+tempsSitesLocations <- readNWISsite(tempsSites) %>% 
+  st_as_sf(coords = c("dec_long_va", "dec_lat_va"), crs = 4269) %>% 
+  mutate(stationName = case_when(
+    station_nm == "ORIENT HARBOR AT ORIENT NY" ~ "Orient Harbor",
+    station_nm == "PECONIC RIVER AT COUNTY HWY 105 AT RIVERHEAD NY" ~ "Peconic River Rte 105",
+    station_nm == "FROST CREEK AT SHEEP LN BRIDGE AT LATTINGTOWN NY" ~ "Frost Creek",
+    station_nm == "EAST CREEK AT SANDS POINT NY" ~ "East Creek",
+    station_nm == "GREAT SOUTH BAY AT WEST SAYVILLE NY" ~ "West Sayville",
+    station_nm == "REYNOLDS CHANNEL AT POINT LOOKOUT NY" ~ "Point Lookout",
+    station_nm == "HOG ISLAND CHANNEL AT ISLAND PARK NY" ~ "Hog Island",
+    station_nm == "ROCKAWAY INLET NEAR FLOYD BENNETT FIELD NY" ~ "Rockaway Inlet", 
+    station_nm == "HUDSON RIVER BELOW POUGHKEEPSIE NY" ~ "Poughkeepsie", 
+    station_nm == "HUDSON RIVER AT SOUTH DOCK AT WEST POINT NY" ~ "West Point", 
+    station_nm == "HUDSON RIVER AT PIERMONT NY" ~ "Piermont",
+    station_nm == "FLAX POND AT OLD FIELD NY" ~ "Flax Pond"
+    
+  ))
+
+# popup 
+
+	popupLink <- function(siteName, siteNo){
+		url <- paste('<a href="https://waterdata.usgs.gov/nwis/inventory?agency_code=USGS&site_no=', 
+			     siteNo,'"','> Access data and site information from NWIS </a>', sep = "")
+		
+		popupFinal <- paste(sep = "<br/>", 
+				    siteName, 
+				    url)
+		popupFinal
+	}
+
+stationMap <- mapview(tempsSitesLocations, popup = popupLink(siteName = tempsSitesLocations$stationName, siteNo = tempsSitesLocations$site_no))
+cntrcords <- c(mean(st_coordinates(tempsSitesLocations)[,1]),
+               mean(st_coordinates(tempsSitesLocations)[,2]))
+stationMap@map %>% leaflet::setView(cntrcords[1], cntrcords[2], zoom = 8)
+
+```
+
+## Plots
+ 
+
+
+
+```{r temps, echo=FALSE}
+# go tsibble.
+theme_set(theme_ipsum())
+
+temps <- dailyTemps %>% 
+  
+  # join to get station names
+  left_join(tempsSitesLocations %>% 
+              select(site_no, stationName)) %>%
+   as_tsibble(key = stationName, index = Date) %>% # make into tsibble
+  fill_gaps() %>% 
+  mutate(month = month(Date),
+         year = year(Date),
+         day_of_year = yday(Date),
+         commonDate = as.Date(paste0("2020-",format(Date, "%j")), "%Y-%j"),
+         year2020 = ifelse(year == 2020, 1, 0))
+# Not all sites have data from 2020
+# Create a list of those sites to then filter for.
+keeps <- temps %>% 
+  group_by(stationName, year, year2020) %>% tally() %>% 
+  filter(year2020 == 1) %>% pull(stationName) %>% unique()
+
+temps <- temps %>% filter(stationName %in% keeps)
+
+```
+
+## Anomolies?  
+How do the temps of 2019 compare with the past? 
+Red ribbon = 2019 temperature range based on daily max and min. Grey ribbon is *daily average* max and min by day for the previous 6 years. 
+ 
+```{r anomolies, message=FALSE, warning=FALSE, paged.print=FALSE}
+daily_mean_8yr <- temps %>% 
+  # filter to get 2012-2019
+  filter(year != 2020) %>%
+  # group by site (site is key)
+  group_by_key() %>%
+  # index by the day of year
+  index_by(day_of_year = ~ yday(.)) %>% 
+  summarize(temp_mean8yr = mean(Wtemp, na.rm = TRUE),
+            temp_max8yr = mean(Wtemp_Max, na.rm = TRUE),
+            temp_min8yr = mean(Wtemp_Min, na.rm = TRUE)) %>% 
+  mutate(commonDate = as.Date(day_of_year, origin = "2020-01-01"))
+
+anomPlot <- daily_mean_8yr %>% fill_gaps() %>% 
+  ggplot(aes(x = commonDate, y = temp_mean8yr)) + 
+  geom_ribbon(aes(ymax = temp_max8yr, ymin = temp_min8yr), alpha = 0.6) +
+  geom_ribbon(data = temps %>% filter(year == 2020), 
+              aes(y = Wtemp, ymin = Wtemp_Min, ymax = Wtemp_Max, x = Date), fill = 'red', alpha = 0.6) + 
+  # theme_minimal() + 
+  scale_x_date(date_labels = "%d-%b", date_breaks = "1 month", limits = c(ymd("2020-01-01"), Sys.Date())) +
+  # scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
+  facet_wrap(stationName ~ .) + theme(panel.spacing = unit(1, "lines")) +
+  labs(main = "2020 Daily temperatures compared to 6 year means (2013-2019)", 
+       x = NULL, y = "Degrees C")
+
+anomPlot
+
+```
+
+### Temp trends
+
+
+```{r message=FALSE, warning=FALSE, paged.print=FALSE}
+
+temps %>% ACF(Wtemp) %>% autoplot()
+  # filter(stationName == "West Sayville") %>% 
+  gg_season(Wtemp)
+
+```
