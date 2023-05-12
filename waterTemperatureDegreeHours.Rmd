@@ -1,0 +1,338 @@
+---
+title: "Data sketches of water temperatures and thresholds"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+
+output: html_document
+---
+
+```{r setup, include=FALSE}
+here::i_am("waterTempThresholds.Rmd")
+
+knitr::opts_chunk$set(
+	echo = FALSE,
+	message = FALSE,
+	warning = FALSE
+)
+library(plotly)
+library(tidyverse)
+library(dplyr)
+library(magrittr)
+library(glue)
+
+library(chron)
+library(stringr)
+library(htmltools)
+
+library(lubridate)
+library(dataRetrieval)
+
+# plotting tools
+library(ggplot2)
+library(ggthemes)
+library(ggExtra)
+library(ggtext)
+library(gghighlight)
+library(scales)
+library(hrbrthemes)
+# Spatial packages
+
+library(sf)
+library(maptools)
+library(RColorBrewer)
+library(mapview)
+library(knitr)
+library(rmarkdown)
+
+# library(weatherData)
+library(lunar)
+# Tidal data
+library(VulnToolkit) 
+library(Tides)
+
+# timeseries 
+library(tsibble)
+library(fable)
+library(feasts)
+library(xts)
+library(here)
+library(units)
+
+source(here::here("../LI_SaltMarshMonitoring/R/truBlue.R")) # lots of code went into trublue utilities from another project. consider making a package.
+library(lunar)
+library(suncalc)
+library(extrafont)
+
+```
+
+### Water temperature stations
+
+Exploring temperature data in the Peconics.
+2 USGS guage stations exist with continuous data collection. 
+
+
+```{r sites}
+h5("Data presented within this document have been made available through the",
+      a(href = 'http://waterdata.usgs.gov/nwis', "USGS NWIS Web Interface:")
+    )
+
+tempsSites <- whatNWISsites(stateCd = "NY",
+              # water temp C
+              parameterCd = "00010", 
+              hasDataTypeCd = "dv", 
+              siteStatus = "active") %>%
+  filter(site_tp_cd == "ES") %>%
+  pull(site_no)
+
+
+
+
+dailymeanTemps <- readNWISdv(
+  siteNumbers = tempsSites,
+  statCd = "00003",
+  startDate = "2013-01-01",
+  #first full year of data collection 2013.
+  endDate = Sys.Date(),
+  # statCd = c("00001", "00002", "00003", "00009"), #
+  parameterCd = "00010"
+) %>%
+  dataRetrieval::renameNWISColumns() %>% 
+  select(agency_cd:Wtemp_cd)
+
+
+dailymeanTemps <- dailymeanTemps %>% filter(Wtemp < 100 & Wtemp > -10) # filter out coded -9999s and 9999s
+
+
+tempsSitesLocations <- readNWISsite(tempsSites) %>% 
+  st_as_sf(coords = c("dec_long_va", "dec_lat_va"), crs = 4269) %>% 
+  mutate(stationName = case_when(
+    station_nm == "ORIENT HARBOR AT ORIENT NY" ~ "Orient Harbor",
+    station_nm == "PECONIC RIVER AT COUNTY HWY 105 AT RIVERHEAD NY" ~ "Peconic River Rte 105",
+    station_nm == "FROST CREEK AT SHEEP LN BRIDGE AT LATTINGTOWN NY" ~ "Frost Creek",
+    station_nm == "EAST CREEK AT SANDS POINT NY" ~ "East Creek",
+    station_nm == "GREAT SOUTH BAY AT WEST SAYVILLE NY" ~ "West Sayville",
+    station_nm == "REYNOLDS CHANNEL AT POINT LOOKOUT NY" ~ "Point Lookout",
+    station_nm == "HOG ISLAND CHANNEL AT ISLAND PARK NY" ~ "Hog Island",
+    station_nm == "ROCKAWAY INLET NEAR FLOYD BENNETT FIELD NY" ~ "Rockaway Inlet", 
+    station_nm == "HUDSON RIVER BELOW POUGHKEEPSIE NY" ~ "Poughkeepsie", 
+    station_nm == "HUDSON RIVER AT SOUTH DOCK AT WEST POINT NY" ~ "West Point", 
+    station_nm == "HUDSON RIVER AT PIERMONT NY" ~ "Piermont",
+    station_nm == "FLAX POND AT OLD FIELD NY" ~ "Flax Pond",
+    station_nm == "SHELTER ISLAND SOUND AT SHELTER ISLAND NY" ~ "Shelter Is Sound",
+    station_nm == "HUDSON RIVER NEAR POUGHKEEPSIE NY" ~ "Hudson Rv Poughkeepsie",
+    T ~ station_nm
+    
+  ))
+
+# popup 
+
+	popupLink <- function(siteName, siteNo){
+		url <- paste('<a href="https://waterdata.usgs.gov/nwis/inventory?agency_code=USGS&site_no=', 
+			     siteNo,'"','> Access data and site information from NWIS </a>', sep = "")
+		
+		popupFinal <- paste(sep = "<br/>", 
+				    siteName, 
+				    url)
+		popupFinal
+	}
+
+stationMap <- mapview(tempsSitesLocations, popup = popupLink(siteName = tempsSitesLocations$stationName, siteNo = tempsSitesLocations$site_no))
+cntrcords <- c(mean(st_coordinates(tempsSitesLocations)[,1]),
+               mean(st_coordinates(tempsSitesLocations)[,2]))
+stationMap@map %>% leaflet::setView(cntrcords[1], cntrcords[2], zoom = 8)
+
+
+
+```
+
+## Plots
+ 
+Data has been collected since 2012, with 2013 being the first 'full' year of data collection.
+
+
+```{r tempdata, echo=FALSE}
+# go tsibble.
+theme_set(theme_ipsum())
+
+dailymeanTemps_clean <- dailymeanTemps %>% 
+  # join to get station names
+  left_join({tempsSitesLocations %>% 
+              st_drop_geometry() %>% 
+              select(site_no, stationName)}, by = "site_no") %>%
+  as_tsibble(key = site_no, index = Date) %>% 
+  fill_gaps() %>%
+  mutate(month = month(Date),
+         year = year(Date),
+         day_of_year = yday(Date),
+         commonDate = as.Date(paste0("2000-",format(Date, "%j")), "%Y-%j")) %>% 
+  # Calc ecdf first -
+  group_by(stationName, year)
+
+```
+
+
+```{r tempplot, echo=FALSE}
+
+dailymeanTemps_clean  %>% 
+  ggplot(aes(x = commonDate, y = Wtemp, group = year)) +
+  geom_line() + 
+  # gghighlight(year == 2013) +
+  # scale_color_gradient(low = "grey", high = "blue", aesthetics = "color") +
+  # scale_color_viridis_c(option = "inferno") +
+  # facet_grid(stationName ~ year) +
+  facet_grid(stationName ~ .) +
+  scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  theme(panel.spacing = unit(.5, "lines")) +
+  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text.y = element_text(angle = 0)) #+ 
+  # labs(y = "Temp (c)", x = NULL, title = "Water temperature through the year", subtitle = "2019 shown in blue")
+
+
+```
+
+
+```{r}
+
+
+dailymeanTemps_clean  %>% 
+  ggplot(aes(x = commonDate, y = Wtemp, group = year)) +
+  geom_line(aes(color = Wtemp > 25)) + 
+  # gghighlight(year) +
+  # scale_color_gradient(low = "grey", high = "blue", aesthetics = "color") +
+  scale_color_viridis_d(option = "inferno") +
+  # facet_grid(stationName ~ year) +
+  facet_grid(stationName ~ .) +
+  scale_x_date(labels = function(x) format(x, "%d-%b")) +
+  theme(panel.spacing = unit(.5, "lines")) +
+  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1),
+        strip.text.y = element_text(angle = 0)) + 
+  labs(y = "Temp (c)", x = NULL, title = "Water temperature through the year", subtitle = "highlights above 25C")
+
+
+
+```
+
+
+
+
+### Exploring Degree Hours - or Degree Days - 
+Although the upper limit of zostera is often the focus, the growing degree days typically captures the temps above a reference baseline - which is typically the lower physiological limit of the plant (the temperature it starts growing at).
+
+### Start with Growing Degree Days.
+
+Chillr has a check data function that looks at the data object for compliance with the funcitons. It seems that they use the Tmax - Tmin /2. That could  be just to allow the ability to use that approach instead of the Tmean as some methods use. More to explore.
+
+
+```{r}
+temp_threshold <- 28
+```
+
+
+```{r}
+
+
+dailymeanTemps_clean %>%
+  filter(stationName %in% c("West Sayville")) %>%
+  filter(year != 2023) %>% 
+  as_tibble() %>%
+  group_by(year, stationName) %>%
+  arrange(stationName, Date) %>% 
+  mutate(
+    threshold = temp_threshold,
+    threshold_over = Wtemp > threshold,
+    # returns boolean 1 for YES it is greater than threshold
+    deg_day = (Wtemp - threshold) * threshold_over,
+    accumulated_gdd = cumsum(deg_day)
+  ) %>% 
+  group_by(stationName, commonDate) %>% 
+  mutate(mean_gdd = mean(accumulated_gdd)) %>% 
+  group_by(year, stationName) %>%
+  rowwise() %>% 
+  mutate(anomoly_gdd = accumulated_gdd - mean_gdd) %>% 
+
+  ggplot(aes(x = commonDate, y = deg_day, group = year, color = as.factor(year))) +
+  geom_line(size = 0.85) +
+  facet_grid(year ~ stationName ) +
+  scale_x_date(
+    labels = function(x)
+      format(x, "%d-%b")
+  ) +
+  theme(panel.spacing = unit(.5, "lines")) +
+  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    strip.text.y = element_text(angle = 0)
+  ) +
+  labs(
+    y = "GDD degC",
+    color = "",
+    x = NULL,
+    title = glue("Growing Degree Days"),
+    subtitle = glue("referenced to base line of {temp_threshold}")
+  )
+
+ggplotly()
+
+
+```
+
+
+## Anomoly Look
+```{r}
+
+dailymeanTemps_clean %>%
+  filter(stationName %in% c("West Sayville")) %>%
+  filter(year != 2023) %>% 
+  as_tibble() %>%
+  group_by(year, stationName) %>%
+  arrange(stationName, Date) %>% 
+  mutate(
+    threshold = temp_threshold,
+    threshold_over = Wtemp > threshold,
+    # returns boolean 1 for YES it is greater than threshold
+    deg_day = (Wtemp - threshold) * threshold_over,
+    accumulated_gdd = cumsum(deg_day)
+  ) %>% 
+  group_by(stationName, commonDate) %>% 
+  mutate(mean_gdd = mean(accumulated_gdd)) %>% 
+  group_by(year, stationName) %>%
+  rowwise() %>% 
+  mutate(anomoly_gdd = accumulated_gdd - mean_gdd) %>% 
+
+  ggplot(aes(x = commonDate, y = anomoly_gdd, group = year, color = as.factor(year))) +
+  geom_line(size = 0.85) +
+  facet_grid(stationName ~ .) +
+  scale_x_date(date_breaks = "1 week",
+    labels = function(x)
+      format(x, "%d-%b")
+  ) +
+  theme(panel.spacing = unit(.5, "lines")) +
+  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+  theme(
+    legend.position = "bottom",
+    axis.text.x = element_text(angle = 90, hjust = 1),
+    strip.text.y = element_text(angle = 0)
+  ) +
+  labs(
+    y = "GDD degC",
+    color = "",
+    x = NULL,
+    title = glue("Growing Degree Days - anomoly from mean GDD of temperature record"),
+    subtitle = glue("referenced to base line of {temp_threshold}")
+  )
+
+ggplotly()
+
+```
+
+
+
+
+
+
