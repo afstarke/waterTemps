@@ -277,7 +277,7 @@ rp_plotly <-
     yaxis = list(title = "")
   )
 
-rp_plotly
+# rp_plotly
 
 subplot(line_plotly, rp_plotly, widths = c(0.75, 0.25), heights = c(0.5), margin = 0.08) %>%  
   layout(title = "Water temperatures through the summer of 2023", 
@@ -326,18 +326,18 @@ adjusted_cdf_plotly <- plot_ly(
             text = ~days_above_num, 
             
             hovertemplate = paste(
-                        '<b>%{x:.1%}</b> measures made \nwere above %{y:.2f}\u00B0F</br>
-                        <extra>\n which is equal to %{text:.0f} total days</extra>'),
+                        '<b>%{x:.1%}</b> measures made \nwere above %{y:.1f}\u00B0F <extra> This is equal to a total of <b>%{text:.0f}</b> days </extra>'),
             sizes = I(0.1)) %>% 
   layout(xaxis = list(title = "Proportions of measures"),
-         yaxis = list(title = "\u00B0F"))
+         yaxis = list(title = "\u00B0F", side = 'right'),
+         title = 'During the monitoring period..')
 
-# adjusted_cdf_plotly
+adjusted_cdf_plotly
 
 
 
 
-subplot(line_plotly, adjusted_cdf_plotly, widths = c(0.75, 0.25), heights = c(0.5), margin = 0.04, shareY = TRUE) %>%  
+subplot(line_plotly, adjusted_cdf_plotly, widths = c(0.75, 0.25), heights = c(0.5), margin = 0.04, shareY = T) %>%  
   layout(title = "Water temperatures through the summer of 2023", 
          showlegend = F,
          xaxis = list(),
