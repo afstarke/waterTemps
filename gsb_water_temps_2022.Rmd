@@ -11,13 +11,6 @@ output: html_document
 date: "2023-5-15"
 ---
 
----
-title: "Great South Bay Water Temperatures - 2022"
-subtitle: "Eelgrass test plot water temps"
-fomat: html
-editor: visual
-date: "2022-10-24"
----
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
