@@ -229,7 +229,10 @@ line_plotly <- plot_ly(data = ts_plot_data, mode = "line" ) %>%
   #        yaxis = list(title = '\u00B0F'),
   #        yaxis2 = cy, showlegend = FALSE) 
 
-# line_plotly
+# line_plotly()
+
+
+
 
 
 ```
@@ -290,32 +293,6 @@ subplot(line_plotly, rp_plotly, widths = c(0.75, 0.25), heights = c(0.5), margin
 
 ```{r echo=FALSE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE, paged.print=FALSE}
 
-
-# 
-# plot_time_adjustedcdf <- ts_plot_data %>%
-#   
-#   ggplot(aes(x = Temp_C, 
-#              y = days_above_num)) +
-#   geom_line() +
-#   geom_ribbon(data = {
-#     . %>% filter(Temp_C > 25)
-#   },
-#   aes(ymin = 0, ymax = days_above_num),
-#   fill = 'red') +
-#   # ylim(c(0, 100)) +
-#   # geom_hline(aes(yintercept = 50)) +
-#   # facet_grid(SN ~ .) +
-#   labs(color = NULL, fill = NULL) +
-#   scale_x_continuous(breaks = c(10, 20, 22, 24, 26, 28),
-#                      limits = c(10, 31)) +
-#   theme(legend.position = "none") +
-#   labs(y = "Number of days at or ABOVE temperature X",
-#        x = "Temperature")
-# 
-# # plot_time_adjustedcdf + coord_flip()
-# 
-# ggplotly(plot_time_adjustedcdf + coord_flip())
-# 
 # # Plot_ly version
 
 adjusted_cdf_plotly <- plot_ly(
