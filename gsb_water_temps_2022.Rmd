@@ -1,6 +1,11 @@
 ---
 title: "Great South Bay 2022"
 subtitle: "Eelgrass test plot water temps"
+knit: (function(input_file, encoding) {
+  out_dir <- 'docs';
+  rmarkdown::render(input_file,
+ encoding=encoding,
+ output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
 output: html_document
 date: "2022-10-24"
 ---
@@ -50,7 +55,7 @@ library(chillR)
 # For outputs and storage of addditional data
 boxfolder <- "../../../Box/water_temperatures_LI"
 # temp datasets
-csvs <- "../../../Box/water_temperatures_LI/data/"
+csvs <- "../../../Box/water_temperatures_LI/raw_data/"
 
 ```
 
@@ -84,25 +89,53 @@ hoboUtility <- function(fileList){
 temperatures <- list.files(csvs, pattern = "*.csv", full.names = T) %>% map_df(.f = ~hoboUtility(.x))
 # Trim dates where data loggers weren't in place
   
-# temperatures %>% write_excel_csv(path = paste0(boxfolder, "gsb_watertemps_eelgrass_test.csv"))
 
-# temperatures <- read_csv("../../../Box Sync/WaterTemps_WestBrook/Tempdata_timeseries_compiled.csv")
+temp_threshold <- 25
 
-ts_temperature <- temperatures %>%  #establish the interval of the recordings made (tsibble defaults to thinking the data are at 1s period.)
-  mutate(DateTime_local = with_tz(DateTime, tzone = "EST5EDT"),
-         date = as_date(DateTime_local)) %>%
+#
+
+ts_temperature <-
+  temperatures %>%  #establish the interval of the recordings made (tsibble defaults to thinking the data are at 1s period.)
+  group_by(SN) %>% 
+  mutate(
+    SN = as.integer(SN),
+    DateTime_local = with_tz(DateTime, tzone = "EST5EDT"),
+    date = as_date(DateTime_local)
+  ) %>%
   # filter out the dates when the logger wasn't in the water.
-  filter(DateTime_local > "2022-05-10" & DateTime_local < "2022-10-21") %>% 
+  filter(DateTime_local > "2022-05-10" &
+           DateTime_local < "2022-10-21") %>%
+  
   # join to the station numbers for spatial component.
-  as_tsibble(key = SN, index = DateTime_local) %>% 
+  as_tsibble(key = SN, index = DateTime_local) %>%
   ## Set the units appropriately.
-  mutate(Temp_c = set_units(x = Temp_C, value = "C"),
-         Temp_f = set_units(measurements::conv_unit(x = Temp_C, from = "C", "F"), "F"),
-         date = as.Date(DateTime),
-         # some plotting tools fuss over there being unit types.
-         Funitless = as.numeric(Temp_f),
-         Cunitless = as.numeric(Temp_C))
-
+  mutate(
+    # ecdf creates a function that is then used to calc % of observed Temp_C less than each value
+    calc_ecdf = ecdf(Temp_C)(Temp_C), 
+    inv_calc_ecdf = 1 - calc_ecdf, # calc the % of values greater than each Temp_C
+    # set units of celsius
+    Temp_c = set_units(x = Temp_C, value = "C"),
+    # convert from C to F and set units. 
+    Temp_f = set_units(measurements::conv_unit(x = Temp_C, from = "C", "F"), "F"),
+    date = as.Date(DateTime),
+    # some plotting tools fuss over there being unit types.
+    F_unitless = as.numeric(Temp_f),
+    C_unitless = as.numeric(Temp_C),
+    numeric_date = as.numeric(date),
+    # establish a common time to be used for plots where days are stacked (raster plots)
+    commTime = format(as.POSIXct(DateTime, tz = "EST5EDT"), "%H:%M"),
+    commDateTime = ymd_hm(paste(min(date), commTime, sep = " "), tz = "EST5EDT"),
+    hot = Temp_C > temp_threshold,
+    hot_temp = ifelse(test = Temp_C > temp_threshold, yes = Temp_C,  no = NA),
+    tot_time_hours = difftime(max(DateTime), min(DateTime), units = "hours"),
+    tot_time_days = difftime(max(DateTime), min(DateTime), units = "days"),
+    hours_above = tot_time_hours * inv_calc_ecdf,
+    days_above = tot_time_days * inv_calc_ecdf, # duration with in unit of days
+    days_above_num = as.numeric(days_above)
+    ) %>%
+  
+  rowid_to_column(var = 'uid')
+      
 
 ```
 
@@ -127,8 +160,6 @@ stations_gsb_2023 <- tibble::tribble(
   sf::st_as_sf(coords = c('lon', 'lat'), 
                crs = 4326) 
 
-
-
 station_map <- mapview(stations_gsb_2023, layer.name = "HOBO locations - 2023", 
         map.types = "Esri.WorldImagery"
         ) 
@@ -136,178 +167,236 @@ station_map <- mapview(stations_gsb_2023, layer.name = "HOBO locations - 2023",
 station_map@map %>% setView(zoom = 14, lng = -73.0565928, lat = 40.6708765) 
 # 
 #
+# save to local data directory to share on github.
+stations_gsb_2023 %>% left_join(ts_temperature, by = "SN") %>% write_csv(here::here('data/gsb_2022_watertemps.csv'))
+# save to Box too for prosterity.
+stations_gsb_2023 %>% left_join(ts_temperature, by = "SN") %>%
+  write_csv(path = paste0(boxfolder, "/processed_data/gsb_2022_watertemps.csv"))
 
 
 ``` 
 
 
 Both temperature loggers successfully collected data from the time they were deployed, May 10, 2022 through October 21, 2022. 
-
+s
 
 ```{r message=FALSE, warning=FALSE}
 
-# temp_line_plot <- ts_temperature %>% 
-#   mutate(Funitless = as.numeric(Temp_f),
-#          Cunitless = as.numeric(Temp_C)) %>% 
-#   ggplot(aes(x = DateTime, y= Funitless, color = SN)) +
-#   geom_line() + 
-#   scale_y_continuous("Degree F", sec.axis = sec_axis(trans = ~ (. - 32)/1.8)) +
-#   # facet_wrap(~SN, nrow = 2)
-#   theme_tnc_base() +
-#   scale_color_tnc(tncpalette = 'oceanhighlight')
-#   
-# ggplotly(temp_line_plot)
 
 ## Native plotly approach. As a refresh.
  cy <- list(
   side = "right",
   title = "\u00B0C")
 
-ts_temperature_highlight <- ts_temperature %>% 
+## Highlight syncing. This seemed to be bogging down.
+# ts_temperature_highlight <- ts_temperature %>% 
+#   
+#   filter(SN == 2235011) %>% # just grab one station.
+#   highlight_key(~hot)
+
+ts_plot_data <- ts_temperature %>% 
+  filter(SN == 2235011) %>%  # just grab one station.
   mutate(
-    numeric_date = as.numeric(date), 
-    commTime = format(as.POSIXct(DateTime, tz = "EST5EDT"), "%H:%M"),
-    commDateTime = ymd_hm(paste(min(date), commTime, sep = " "), tz = "EST5EDT")
-  ) %>%
-  filter(SN == 2235011) %>% highlight_key(~date)
+    # add custom hovers.
+    text = 
+    paste("<span style='color:red'>GSB Summer 2022</span>"))
+    
+## Shared data for client-side linking
+# https://plotly-r.com/client-side-linking.html
+
+# ts_plot_data_shared <- ts_plot_data %>% highlight_key(~uid)
+  
 
 
-line_plotly <- plot_ly(data = ts_temperature_highlight ) %>% 
+line_plotly <- plot_ly(data = ts_plot_data, mode = "line" ) %>% 
   # highlight_key(~date) %>% 
-  add_lines(y = ~Funitless, 
+  add_trace(y = ~F_unitless,
             x = ~DateTime,
-            color = ~SN) %>% 
-  # add_lines(y = ~Cunitless, 
+            text = ~text, 
+            
+            hovertemplate = paste(
+                        '<b></b>%{x}',
+                        '<br>%{y:.2f}\u00B0F</br><extra></extra>'),
+            sizes = I(0.1)) #%>%
+  # add_markers(y = ~F_unitless, 
+  #           x = ~DateTime,
+  #           size = I(.1)) %>% 
+  ## There was something off with adding another line/axis - axis would be added but the line wouldn't
+  # add_lines(y = ~C_unitless, 
   #           x = ~DateTime, 
   #           color = ~SN,
   #           side = 'right',
-  #           yaxis = "y2", name = "\u00B0C") %>% 
-  layout(
-         xaxis = list(title = NULL),
-         yaxis = list(title = '\u00B0F'),
-         yaxis2 = cy, showlegend = FALSE) 
+  #           yaxis 1 "y2", name = "\u00B0C") %>% 
+  # layout(
+  #   hovermide = "x unified",
+  #        xaxis = list(title = NULL),
+  #        yaxis = list(title = '\u00B0F'),
+  #        yaxis2 = cy, showlegend = FALSE) 
+
+# line_plotly
 
 
 ```
 
 
-```{r fig.height=10, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+```{r fig.height=7, fig.width=10, message=FALSE, warning=FALSE, paged.print=FALSE}
 
 # raster plot
-rp <-  ts_temperature_highlight %>% 
-  
-  ggplot(aes(y = numeric_date, 
-             x = commDateTime, 
-             fill = Funitless,
-             group = date)) +
-  geom_raster(hjust = 0, vjust = 0) +
-  
-  scale_fill_tnc(discrete = F) +
-  
-  # scale_fill_paletteer_c() %>%
-  scale_x_datetime(
-    breaks = date_breaks('2 hour'),
-    labels = date_format("%H", tz = "EST5EDT"),
-    expand = c(0, 0)
-  ) +
-  # scale_y_date(breaks = date_breaks('1 week'), date_labels = "%b %d") +
-  labs(x = 'Hour of day:', y = NULL)  +
-  scale_y_reverse(labels = ~format(as.Date(.x, origin = "1970-01-01"), "%b %d"),
-                  breaks = as.numeric(seq(from = as.Date("2022-05-10"), 
-                                          by = "week", length = 20)))
-# rp
-
-rp_plotly <- ggplotly(rp)
-	  	
-scatter_try <- ts_temperature_highlight %>% 
-  ggplot(aes(date, Temp_C)) + 
-  geom_point()
-
-scatter_try_plotly <- ggplotly(scatter_try)
+# rp <-  ts_plot_data_shared %>% 
+#   ggplot(aes(y = numeric_date, 
+#              x = commDateTime, 
+#              fill = F_unitless,
+#              group = date)) +
+#   geom_raster(hjust = 0, vjust = 0) +
+#   
+#   scale_fill_tnc(discrete = F) +
+#   
+#   # scale_fill_paletteer_c() %>%
+#   scale_x_datetime(
+#     breaks = date_breaks('2 hour'),
+#     labels = date_format("%H", tz = "EST5EDT"),
+#     expand = c(0, 0)
+#   ) +
+#   # scale_y_date(breaks = date_breaks('1 week'), date_labels = "%b %d") +
+#   labs(x = 'Hour of day:', y = NULL,
+#        fill = "\u00B0F")  +
+#   scale_y_reverse(labels = ~format(as.Date(.x, origin = "1970-01-01"), "%b %d"),
+#                   breaks = as.numeric(seq(from = as.Date("2022-05-10"), 
+#                                           by = "week", length = 20)))
+# # rp
 
 
-subplot(line_plotly, rp_plotly, widths = c(0.7, 0.3), heights = c(0.5), margin = 0.08) %>%  
-  highlight(on = "plotly_click", persistent = T)
+rp_plotly <-
+  plot_ly(
+    colors = viridis_pal(option = "C")(10),
+    y = ~ date,
+    x = ~ commDateTime,
+    z = ~ F_unitless,
+    data = ts_plot_data,
+    type = 'heatmap',
+    hovertemplate = paste('<b></b>%{y}',
+                          '<br>%{z:.2f}\u00B0F</br><extra></extra>')
+  ) %>% layout(
+    yaxis = list(title = NULL),
+    yaxis = list(title = ""),
+    legend = 
+  )
+
+rp_plotly
+
+subplot(line_plotly, rp_plotly, widths = c(0.75, 0.25), heights = c(0.5), margin = 0.08) %>%  
+  layout(title = "Water temperatures through the summer of 2023", 
+         xaxis = list())
+
+
 
 
 ```
 
-```{r echo=FALSE, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, paged.print=FALSE}
+```{r echo=FALSE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE, paged.print=FALSE}
+
+
+# 
+# plot_time_adjustedcdf <- ts_plot_data %>%
+#   
+#   ggplot(aes(x = Temp_C, 
+#              y = days_above_num)) +
+#   geom_line() +
+#   geom_ribbon(data = {
+#     . %>% filter(Temp_C > 25)
+#   },
+#   aes(ymin = 0, ymax = days_above_num),
+#   fill = 'red') +
+#   # ylim(c(0, 100)) +
+#   # geom_hline(aes(yintercept = 50)) +
+#   # facet_grid(SN ~ .) +
+#   labs(color = NULL, fill = NULL) +
+#   scale_x_continuous(breaks = c(10, 20, 22, 24, 26, 28),
+#                      limits = c(10, 31)) +
+#   theme(legend.position = "none") +
+#   labs(y = "Number of days at or ABOVE temperature X",
+#        x = "Temperature")
+# 
+# # plot_time_adjustedcdf + coord_flip()
+# 
+# ggplotly(plot_time_adjustedcdf + coord_flip())
+# 
+# # Plot_ly version
+
+adjusted_cdf_plotly <- plot_ly(
+  data = ts_plot_data, mode = "line" ) %>% 
+  # highlight_key(~date) %>% 
+  add_trace(y = ~F_unitless,
+            x = ~inv_calc_ecdf,
+            text = ~days_above_num, 
+            
+            hovertemplate = paste(
+                        '<b>%{x:.1%}</b> measures made \nwere above %{y:.2f}\u00B0F</br>
+                        <extra>\n which is equal to %{text:.0f} total days</extra>'),
+            sizes = I(0.1)) %>% 
+  layout(xaxis = list(title = "Proportions of measures"),
+         yaxis = list(title = "\u00B0F"))
+
+# adjusted_cdf_plotly
 
 
 
-plot_time_adjustedcdf <- temp_stats %>%
-  group_by(SN, year) %>% 
-  arrange(hours_num) %>%
-  
-  filter(SN == "2235011") %>%
-  # mutate(Temp_C = drop_units(Temp_C)) %>%
-  ggplot(aes(x = Temp_C, y = days_num, group = as.character(year))) +
-  geom_line() +
-  geom_ribbon(data = {
-    . %>% filter(Temp_C > 25)
-  },
-  aes(ymin = 0, ymax = days_num),
-  fill = 'red') +
-  # ylim(c(0, 100)) +
-  # geom_hline(aes(yintercept = 50)) +
-  facet_grid(SN ~ year) +
-  labs(color = NULL, fill = NULL) +
-  scale_x_continuous(breaks = c(10, 20, 22, 24, 26, 28),
-                     limits = c(10, 31)) +
-  theme(legend.position = "none") +
-  labs(y = "Number of days at or ABOVE temperature X",
-       x = "Temperature")
 
-plot_time_adjustedcdf + coord_flip()
+subplot(line_plotly, adjusted_cdf_plotly, widths = c(0.75, 0.25), heights = c(0.5), margin = 0.04, shareY = TRUE) %>%  
+  layout(title = "Water temperatures through the summer of 2023", 
+         showlegend = F,
+         xaxis = list(),
+         yaxis = list(title = "\u00B0F")) %>% 
+  highlight(persistent = T)
 
-ggplotly(plot_time_adjustedcdf + coord_flip())
-
+# layout(
+  #   hovermide = "x unified",
+  #        xaxis = list(title = NULL),
+  #        yaxis = list(title = '\u00B0F'),
+  #        yaxis2 = cy, showlegend = FALSE)
 
 
 ```
 
 ```{r}
+# 
+# temp_threshold <-  25
+# 
+# # temp_stats %>% mutate(hot = Temp_C > temp_threshold)
+# 
+# ts_plot_data  %>% 
+#   # arrange(DateTime) %>% 
+#   ggplot(aes(x = DateTime, y = Temp_C)) +
+#   geom_line() +
+#   geom_line(aes(y = hot_temp), color = "darkred", size = 1.2) +
+# 
+#   geom_ribbon(
+#     aes(ymax = hot_temp, ymin = 25),
+#     fill = "red",
+#     # color = "red",
+#     alpha = 0.3
+#   ) +
+#   # geom_ribbon(
+#   #   aes(ymax = hot_temp, ymin = 20),
+#   #   fill = "red",
+#   #   # color = "red",
+#   #   alpha = 0.3
+#   # ) +
+#   # gghighlight(year) +
+#   scale_color_paletteer_d(`"pals::stepped"`) +
+#   # scale_color_viridis_d(option = "inferno") +
+#   # facet_grid(stationName ~ year) +
+#   facet_grid(SN ~ .) +
+#   scale_x_datetime(labels = function(x) format(x, "%d-%b")) +
+#   scale_y_continuous(limits = c(10, 33)) + 
+#   theme(panel.spacing = unit(.5, "lines")) +
+#   # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
+#   theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
+#   labs(y = "Temp (c)", x = NULL, title = "Water temperature through the year", subtitle = glue("Temperatures above {temp_threshold}°C"))
+# 
+# 
+# ggplotly()
 
-temp_threshold <-  25
-
-# temp_stats %>% mutate(hot = Temp_C > temp_threshold)
-
-temp_stats  %>% mutate(hot = Temp_C > temp_threshold,
-                       hot_temp = ifelse(test = Temp_C > temp_threshold, yes = Temp_C,  no = NA)
-                       ) %>%
-  filter(SN == "2235011") %>% 
-  # arrange(DateTime) %>% 
-  ggplot(aes(x = DateTime, y = Temp_C)) +
-  geom_line() +
-  geom_line(aes(y = hot_temp), color = "darkred", size = 1.2) +
-
-  geom_ribbon(
-    aes(ymax = hot_temp, ymin = 25),
-    fill = "red",
-    # color = "red",
-    alpha = 0.3
-  ) +
-  # geom_ribbon(
-  #   aes(ymax = hot_temp, ymin = 20),
-  #   fill = "red",
-  #   # color = "red",
-  #   alpha = 0.3
-  # ) +
-  # gghighlight(year) +
-  scale_color_paletteer_d(`"pals::stepped"`) +
-  # scale_color_viridis_d(option = "inferno") +
-  # facet_grid(stationName ~ year) +
-  facet_grid(SN ~ .) +
-  scale_x_datetime(labels = function(x) format(x, "%d-%b")) +
-  scale_y_continuous(limits = c(10, 33)) + 
-  theme(panel.spacing = unit(.5, "lines")) +
-  # scale_x_continuous(labels = function(x) format(as.Date(as.character(x), "%j"), "%d-%b")) +
-  theme(legend.position = "none", axis.text.x = element_text(angle = 90, hjust = 1)) + 
-  labs(y = "Temp (c)", x = NULL, title = "Water temperature through the year", subtitle = glue("Temperatures above {temp_threshold}°C"))
-
-
-ggplotly()
 ```
 
 <!-- ## ChillR - Degree Days and other explorations -->
