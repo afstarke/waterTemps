@@ -6,8 +6,9 @@ knit: (function(input_file, encoding) {
   rmarkdown::render(input_file,
  encoding=encoding,
  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
+ 
 output: html_document
-date: "2022-10-24"
+date: "2023-5-15"
 ---
 
 ---
@@ -278,8 +279,7 @@ rp_plotly <-
                           '<br>%{z:.2f}\u00B0F</br><extra></extra>')
   ) %>% layout(
     yaxis = list(title = NULL),
-    yaxis = list(title = ""),
-    legend = 
+    yaxis = list(title = "")
   )
 
 rp_plotly
