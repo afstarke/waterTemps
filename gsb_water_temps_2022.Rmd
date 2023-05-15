@@ -1,6 +1,6 @@
 ---
-title: "Great South Bay 2022"
-subtitle: "Eelgrass test plot water temps"
+title: "Great South Bay"
+subtitle: "Summer 2022 Temperatures"
 knit: (function(input_file, encoding) {
   out_dir <- 'docs';
   rmarkdown::render(input_file,
@@ -134,7 +134,8 @@ ts_temperature <-
 ```
 
 ### Water Temperature Monitoring
-Two Onset HOBO UA-002 Temperature and light data loggers were each attached to a 4"x8"x16" concrete block that were tethered together with a length (~50 ft) of line so that no surface floats were needed. The depth at the site was shallow enough (3') to see blocks on a calm day.
+
+Two Onset HOBO UA-002 Temperature and light data loggers were each attached to a 4"x8"x16" concrete block that were tethered together with a length (~50 ft) of line so that no surface floats were needed. The depth at the site was shallow enough (3') to see blocks on a calm day. The loggers were placed adjacent to an area being investigated for eelgrass restoration.
 
 ```{r map, message=FALSE, warning=FALSE, include=TRUE, paged.print=FALSE}
 
@@ -166,13 +167,14 @@ stations_gsb_2023 %>% left_join(ts_temperature, by = "SN") %>% write_csv(here::h
 # save to Box too for prosterity.
 stations_gsb_2023 %>% left_join(ts_temperature, by = "SN") %>%
   write_csv(path = paste0(boxfolder, "/processed_data/gsb_2022_watertemps.csv"))
+# share to 'shared data' directory for github
+stations_gsb_2023 %>% left_join(ts_temperature, by = "SN") %>% write_csv(here::here('datashare/gsb_2022_watertemps.csv'))
 
 
 ``` 
 
 
-Both temperature loggers successfully collected data from the time they were deployed, May 10, 2022 through October 21, 2022. 
-s
+Both temperature loggers successfully collected data from the time they were deployed, May 10, 2022 through October 21, 2022. Only data from one logger is represented on this page but data from both loggers is available as a .csv [here]('datashare/gsb_2022_watertemps.csv')
 
 ```{r message=FALSE, warning=FALSE}
 
