@@ -8,7 +8,7 @@ knit: (function(input_file, encoding) {
  output_file=file.path(dirname(input_file), out_dir, 'index.html'))})
  
 output: html_document
-date: "2023-5-15"
+date: "produced May 5, 2023"
 ---
 
 
@@ -174,7 +174,7 @@ stations_gsb_2023 %>% left_join(ts_temperature, by = "SN") %>% write_csv(here::h
 ``` 
 
 
-Both temperature loggers successfully collected data from the time they were deployed, May 10, 2022 through October 21, 2022. Only data from one logger is represented on this page but data from both loggers is available as a .csv [here]('datashare/gsb_2022_watertemps.csv')
+Both temperature loggers successfully collected data from the time they were deployed, May 10, 2022 through October 21, 2022. Only data from one logger is represented on this page but data from both loggers is available as a .csv [here]('https://github.com/afstarke/waterTemps/tree/7163fa4d1c2c9cd64598fb3d357a825fbb710c56/datashare')
 
 ```{r message=FALSE, warning=FALSE}
 
@@ -332,7 +332,7 @@ adjusted_cdf_plotly <- plot_ly(
          yaxis = list(title = "\u00B0F", side = 'right'),
          title = 'During the monitoring period..')
 
-adjusted_cdf_plotly
+# adjusted_cdf_plotly
 
 
 
@@ -436,7 +436,7 @@ islipTerrace_rain %>% ggplot(aes(x = date, y = precip_in)) +
 
 #### Data
 
-Data linked here: [Temperature Data]()
+Data linked here: [Temperature Data](https://github.com/afstarke/waterTemps/tree/7163fa4d1c2c9cd64598fb3d357a825fbb710c56/datashare)
 
 #### Weather reference site:
 
